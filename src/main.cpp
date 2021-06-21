@@ -1,33 +1,93 @@
-//
-// Created by Ronald Rahaman on 9/19/20.
-//
-
 #include "FldData.h"
-#include "FldHeader.h"
-#include <algorithm>
-#include <iostream>
-#include <string>
+#include "vtkCamera.h"
+#include "vtkClipDataSet.h"
+#include "vtkDataSetMapper.h"
+#include "vtkLODActor.h"
+#include "vtkPNGWriter.h"
+#include "vtkPlane.h"
+#include "vtkProperty.h"
+#include "vtkRenderWindow.h"
+#include "vtkRenderWindowInteractor.h"
+#include "vtkRenderer.h"
+#include "vtkWindowToImageFilter.h"
 
-int main()
+#include <chrono>
+
+int main(int argc, char* argv[])
 {
-  std::string filename{"/Users/ronald/repos/fld_pyutils/data/rod_short0.f00001"};
+  if (argc != 2) {
+    std::cout << "Usage: " << argv[0] << " <field_file>" << std::endl;
+    return 1;
+  }
+  std::string filename{argv[1]};
 
-  // Header test
-  // auto foo = fld::FldHeader<float, int>(filename);
-  // std::cout << foo.Nelgt << std::endl;
-  // std::cout << *std::min_element(foo.Glel.cbegin(), foo.Glel.cend()) << std::endl;
-  // std::cout << *std::max_element(foo.Glel.cbegin(), foo.Glel.cend()) << std::endl;
+  fld::FldData<float, int> data(filename);
 
-  // Data test
-  fld::FldData<float, int> bar(filename);
-  std::cout << "Coords min/max: "
-            << *std::min_element(bar.Coords.cbegin(), bar.Coords.cend()) << ", "
-            << *std::max_element(bar.Coords.cbegin(), bar.Coords.cend()) << std::endl;
-  std::cout << "Velocity min/max: " << *std::min_element(bar.U.cbegin(), bar.U.cend())
-            << ", " << *std::max_element(bar.U.cbegin(), bar.U.cend()) << std::endl;
-  std::cout << "Pressure min/max: " << *std::min_element(bar.P.cbegin(), bar.P.cend())
-            << ", " << *std::max_element(bar.P.cbegin(), bar.P.cend()) << std::endl;
-  std::cout << "Temperature min/max: " << *std::min_element(bar.T.cbegin(), bar.T.cend())
-            << ", " << *std::max_element(bar.T.cbegin(), bar.T.cend()) << std::endl;
-  std::cout << bar.U.size() << " " << bar.T.size() << " " << bar.T.size() << std::endl;
+  auto gridStart = std::chrono::steady_clock::now();
+  // auto hexGrid = data.GetHexGrid();
+  auto hexGrid = data.GetLagrangeHexGrid();
+  auto gridEnd = std::chrono::steady_clock::now();
+
+  vtkNew<vtkPlane> clipPlane;
+  clipPlane->SetOrigin(hexGrid->GetCenter());
+  clipPlane->SetNormal(1.0, 0.0, 0.0);
+
+  vtkNew<vtkClipDataSet> clipper;
+  clipper->SetClipFunction(clipPlane);
+  clipper->SetInputData(hexGrid);
+  clipper->SetValue(0.0);
+  clipper->GenerateClippedOutputOn();
+  clipper->Update();
+
+  vtkNew<vtkDataSetMapper> mapper;
+  mapper->SetInputData(clipper->GetOutput());
+  mapper->SetScalarRange(hexGrid->GetScalarRange());
+
+  vtkNew<vtkLODActor> actor;
+  actor->SetMapper(mapper);
+  actor->GetProperty()->EdgeVisibilityOn();
+  actor->GetProperty()->SetLineWidth(0.25);
+  actor->GetProperty()->SetAmbient(50);
+
+  vtkNew<vtkRenderer> ren;
+  ren->AddActor(actor);
+  ren->SetBackground(245, 245, 220); // beige
+
+  // Move camera
+  // vtkNew<vtkCamera> camera;
+  // camera->SetPosition(-5, 0, 20);
+  // camera->SetFocalPoint(5, 0, 0);
+  // camera->Zoom(4);
+  // ren->SetActiveCamera(camera);
+
+  vtkNew<vtkRenderWindow> renWin;
+  renWin->AddRenderer(ren);
+  renWin->SetSize(1600, 800);
+
+  vtkNew<vtkRenderWindowInteractor> iren;
+  iren->SetRenderWindow(renWin);
+
+  auto renderStart = std::chrono::steady_clock::now();
+  renWin->Render();
+  auto renderEnd = std::chrono::steady_clock::now();
+
+  std::chrono::duration<double> gridTime = gridEnd - gridStart;
+  std::chrono::duration<double> renderTime = renderEnd - renderStart;
+  std::cout << "Grid setup time: " << gridTime.count() << " s" << std::endl;
+  std::cout << "Rendering time: " << renderTime.count() << " s" << std::endl;
+
+  // Write to .png
+  // vtkNew<vtkPNGWriter> writer;
+  // vtkNew<vtkWindowToImageFilter> winToImg;
+  // winToImg->SetInput(renWin);
+  // winToImg->SetScale(1);
+  // winToImg->SetInputBufferTypeToRGB();
+  // winToImg->ReadFrontBufferOff();
+  // winToImg->Update();
+  // writer->SetFileName("rod_short.png");
+  // writer->SetInputConnection(winToImg->GetOutputPort());
+  // writer->Write();
+
+  iren->Initialize();
+  iren->Start();
 }
